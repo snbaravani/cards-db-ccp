@@ -1,0 +1,68 @@
+text[API OVERVIEW]
+- Please generate the services, repository and models and test cases. No Rest APIs are needed.
+- Please generate all the models in one package. Just generate one service layer class. It should be marked Transactional. 
+- Also create .sqls for each model inside a file.This file should be under sl folder under resources
+ - Create Insert queries in a file for each model and insert 3 records each. FIle should be under sql folder under resources
+
+Language/Framework: Java 21 and Spring Boot
+Database: MySQL (using Hibernate)
+DTO: Please use record type for PoJos
+
+[Service Layer]
+1. GET /customer - Based on last name, e-mail , mobile. If last name is used either mobile or e-mail should be used with last name. Otherwise just mobile or e-mail dats should be enough to search the database
+2. GET /card/program - Fetch card program. Based on the card name 
+3. Get /card/summary - fetch summary based on the customer id (foreign key from customer table)
+
+[DATA MODELS]: (Use Hibernate)
+
+Please ensure the solution follows all modern Hibernate best practices:
+1. Make the child side   the owning side using @ManyToOne and @JoinColumn.
+2. Use the `mappedBy` attribute on the parent side (@OneToMany) to prevent an extra join table.
+3. Explicitly set `fetch = FetchType.LAZY` on the @ManyToOne side to avoid performance traps.
+4. Include synchronization/helper methods in the parent class to keep both sides of the collection in sync.
+5. Implement proper `equals()` and `hashCode()` using only the business key or UUID (not the database ID).
+
+Customer: 
+  - customer_id: UUID (Auto-generated - primary key)
+  - firstName: String
+  - lastName: String
+  - email: String (Unique, validated format)
+  - mobile: Number
+  - dob: Date  
+  
+CardProgram: 
+ - program_id: UUID (Auto-generated)
+ - name: String
+ - interest_rate: Decimal
+ - air_loayalty_plan: String
+ - interest_free_days: Integer
+ -  max_credit_limit: BigInteger
+ - min_credit_limit: BigInteger
+ 
+ Customer_Card_Summary:
+ - customer_id: UUID (Foreign key from Customer table)
+ - program_id :  UUID
+ - programme_name: String
+ - card_status: String [ACTIVE, BLOCKED, INACTIVE, EXPIRED]
+ - fraud_flag : Boolean (True/False) 
+ - expiry_date: Date
+ - credit_outstanding : Decimal
+ 
+ Transactions 
+ - transaction_id: UUID (Auto-generated - primary key)
+ - customer_id : UUID  (from Customer table)
+ - amount: Decimal
+ - trans_date: Time
+ - merchant_name: String
+ - City: String
+ - Country: String
+ 
+Please generate the following relationship
+1. Customer has one to one relationship with Customer_Card_Summary
+2. Customer has one to many relationship with Transactions. Ex: A customer can have many transactions.
+
+Unit testing
+- Write mockito test for every service in the service layer
+- write a test case for every api in the controller
+
+============
