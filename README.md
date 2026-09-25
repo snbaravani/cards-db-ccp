@@ -1,67 +1,128 @@
-# cards-db-ccp
-Cards MCP Server
-------------------------
+# cards-service-rest
 
-An MCP (Model Context Protocol) server that gives an LLM-based credit-card customer support agent tools to look
-up customers, card programs, and card summaries, and to close a card. It exposes no REST API — the only
-agent-facing surface is the set of `@McpTool` methods below, served over the streamable MCP transport.
+A Spring Boot REST API for a credit-card customer support agent: look up customers, card programs and card
+summaries, and close cards.
 
-## Tools
+The main purpose of this project is to **measure how much enabling virtual threads improves throughput** for a
+typical blocking, database-backed Spring MVC application.
 
-All tools live in `CardService` (`src/main/java/com/example/cardsdbccp/service/CardService.java`).
+Please read the article here: https://medium.com/@snbaravani/virtual-threads-measuring-the-spring-boot-performance-leap-d5c6e304b177
 
-| Tool | Description |
-|---|---|
-| `search_customer` | Look up a customer by email and return their profile (name, email, mobile, DOB). |
-| `search_card_program_by_name` | Fetch card program details (interest rate, credit limits, interest-free days, air loyalty plan) by program name. |
-| `search_card_summary_by_customer_email` | Fetch a customer's card summary (program, status, fraud flag, expiry, outstanding credit) by email. |
-| `close_customer_card` | Close a customer's card by email — allowed only when there's no outstanding credit and the card isn't fraud-flagged; otherwise returns a message pointing the customer to call support. |
+## Virtual threads in two lines
 
-## Features
+Virtual threads are lightweight threads managed by the JVM rather than the OS, so an application can run
+millions of them and give every request its own thread. When a virtual thread blocks on I/O (a DB call, an
+HTTP call, `Thread.sleep`), the JVM unmounts it from its carrier thread, so the carrier can serve other work.
 
-- **MCP tool server** — Spring AI's MCP server framework (`spring-ai-starter-mcp-server-webmvc`) exposes typed,
-  annotated tools an LLM agent can call directly; no hand-rolled REST layer.
-- **Streamable HTTP transport** on port `8090` (`spring.ai.mcp.server.protocol=streamable`).
-- **Business-rule enforcement** — card closure logic lives server-side (`fraudFlag == false` and
-  `creditOutstanding <= 0`), so the agent can't close a card it shouldn't.
-- **JPA domain model** — `Customer` 1:1 `CustomerCardSummary`, `Customer` 1:N `Transaction`,
-  `CustomerCardSummary` N:1 `CardProgram`, all with UUID primary keys.
-- **DB-owned schema** — schema and seed data live in `db/init/*.sql`, applied once against a fresh MySQL volume;
-  Hibernate never manages DDL (`ddl-auto=none`).
-- **Docker Compose dev support** — `./mvnw spring-boot:run` auto-starts a seeded MySQL instance via
-  `compose.yaml`.
-- **Testcontainers-backed tests** — tests run against a real MySQL container, not H2 or mocks.
+Official docs: [JEP 444: Virtual Threads](https://openjdk.org/jeps/444) ·
+[Oracle Java documentation: Virtual Threads](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
 
 ## Tech stack
 
-- **Java 25**
-- **Spring Boot 4.1.1**
-- **Spring AI 2.0.0** (`spring-ai-starter-mcp-server-webmvc`) — MCP server
-- **Spring Data JPA** + **MySQL** (`mysql-connector-j`)
-- **Spring Boot Docker Compose** support for local MySQL
-- **Testcontainers** (MySQL) for integration tests
-- **Maven** (wrapper included)
+| Area          | Technology                                                     |
+|---------------|----------------------------------------------------------------|
+| Language      | Java 23                                                        |
+| Framework     | Spring Boot 4.1.1 (Spring MVC on embedded Tomcat)              |
+| Persistence   | Spring Data JPA / Hibernate, HikariCP connection pool          |
+| Database      | MySQL (via `compose.yaml`), schema + seed data in `db/init/`   |
+| API docs      | springdoc-openapi 3.1.1 (Swagger UI)                           |
+| Utilities     | Lombok                                                         |
+| Local dev     | Spring Boot Docker Compose support, DevTools                   |
+| Testing       | JUnit 5, Spring Boot Test, Testcontainers (MySQL)              |
+| Build         | Maven (wrapper included)                                       |
+
+## API
+
+Base URL: `http://localhost:8090`
+
+| Method | Path                                    | Description                                              |
+|--------|-----------------------------------------|----------------------------------------------------------|
+| GET    | `/api/customers/{email}`                | Look up a customer by email                              |
+| GET    | `/api/card-programs?name={name}`        | Look up card programs by name                            |
+| GET    | `/api/customers/{email}/card-summary`   | Get a customer's card summary                            |
+| POST   | `/api/customers/{email}/close-card`     | Close a card (only if no outstanding balance and no fraud flag) |
+
+Errors are returned as RFC 9457 `ProblemDetail` responses (`404` not found, `400` invalid input, `500`
+unexpected).
+
+- Swagger UI: http://localhost:8090/swagger-ui.html
+- OpenAPI spec: http://localhost:8090/v3/api-docs
+
+Sample customer from the seed data: `john.doe@example.com`.
 
 ## Running it
 
+Prerequisites: JDK 23+, Docker.
+
 ```bash
-./mvnw spring-boot:run          # runs the app on port 8090; auto-starts MySQL via compose.yaml
-docker compose up -d            # or start MySQL standalone, seeded from db/init/*.sql on first run
-./mvnw test                     # run all tests (requires Docker for Testcontainers)
-./mvnw clean install            # full build
+./mvnw spring-boot:run      # starts the app on port 8090 and auto-starts MySQL via compose.yaml
+docker compose up -d        # or start MySQL on its own (seeded from db/init/*.sql on first run)
+./mvnw test                 # run all tests (Testcontainers needs Docker)
+./mvnw clean install        # full build
 ```
 
-## Architecture
+The database schema is owned by `db/init/*.sql`, not Hibernate (`spring.jpa.hibernate.ddl-auto=none`).
+
+## Project structure
 
 ```
-model (JPA entities) → repository (Spring Data JPA) → service (CardService) → dto (MCP response records)
+controller  → REST endpoints (CardController)
+service     → business logic (CardService, @Transactional)
+repository  → Spring Data JPA repositories
+model       → JPA entities (Customer, CustomerCardSummary, CardProgram, Transaction)
+dto         → record-based response types
+exception   → GlobalExceptionHandler, ResourceNotFoundException
 ```
 
-- `model` — `Customer`, `CustomerCardSummary`, `CardProgram`, `Transaction`, `CardStatus`
-- `repository` — Spring Data JPA repositories
-- `service` — `CardService`, the single `@Transactional(readOnly = true)` service class holding all `@McpTool`
-  methods
-- `dto` — record-based response types returned to the MCP tool caller
+## Benchmarking virtual threads
 
-See `CLAUDE.md` and `src/main/resources/requirement-ccp.txt` for further background on the domain model and
-design decisions.
+### How the test is set up
+
+`CardService.searchCustomer` calls `Thread.sleep(200)` to simulate a slow blocking call (e.g. a downstream
+service or slow query). The relevant settings in `application.properties` are:
+
+```properties
+spring.threads.virtual.enabled=true            # toggle this between runs
+server.tomcat.threads.max=20                   # small platform-thread pool, to make the bottleneck visible
+spring.datasource.hikari.maximum-pool-size=200 # enough DB connections that the pool isn't the limit
+```
+
+- **Virtual threads off:** Tomcat serves requests on at most 20 platform threads. Each request holds its thread
+  for ~200 ms while sleeping, so throughput tops out at about 20 / 0.2 s = **~100 requests/s**, and extra
+  requests queue up.
+- **Virtual threads on:** each request gets its own virtual thread and `server.tomcat.threads.max` no longer
+  applies. Blocked requests don't hold an OS thread, so throughput should grow with concurrency until another
+  limit, such as the Hikari connection pool or CPU, is reached.
+
+### Running the benchmark
+
+1. Start the app with virtual threads **disabled**:
+
+   ```bash
+   ./mvnw spring-boot:run -Dspring-boot.run.arguments=--spring.threads.virtual.enabled=false
+   ```
+
+2. Run a load test against the slow endpoint, e.g. with [`hey`](https://github.com/rakyll/hey)
+   (`brew install hey`):
+
+   ```bash
+   hey -n 5000 -c 500 http://localhost:8090/api/customers/john.doe@example.com
+   ```
+
+   Or with ApacheBench: `ab -n 5000 -c 500 http://localhost:8090/api/customers/john.doe@example.com`
+
+3. Record requests/sec and latency (average, p95, p99).
+4. Restart the app with virtual threads **enabled** (`--spring.threads.virtual.enabled=true`, the default in
+   `application.properties`) and repeat the same load test.
+5. Compare the two runs. Increase concurrency (`-c`) to see where each setup levels off.
+
+To make the comparison fair, warm up the JVM with a short run first and discard those results.
+
+### Results
+
+Fill in with your own measurements:
+
+| Mode                 | Concurrency | Requests/sec | Avg latency | p95 latency | p99 latency |
+|----------------------|-------------|--------------|-------------|-------------|-------------|
+| Platform threads (20)| 500         |              |             |             |             |
+| Virtual threads      | 500         |              |             |             |             |

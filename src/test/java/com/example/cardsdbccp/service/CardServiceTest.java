@@ -1,8 +1,17 @@
 package com.example.cardsdbccp.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.example.cardsdbccp.dto.CardProgramResponse;
+import com.example.cardsdbccp.dto.CloseCardResponse;
 import com.example.cardsdbccp.dto.CustomerCardSummaryResponse;
 import com.example.cardsdbccp.dto.CustomerResponse;
+import com.example.cardsdbccp.exception.ResourceNotFoundException;
 import com.example.cardsdbccp.model.CardProgram;
 import com.example.cardsdbccp.model.CardStatus;
 import com.example.cardsdbccp.model.Customer;
@@ -10,27 +19,18 @@ import com.example.cardsdbccp.model.CustomerCardSummary;
 import com.example.cardsdbccp.repository.CardProgramRepository;
 import com.example.cardsdbccp.repository.CustomerCardSummaryRepository;
 import com.example.cardsdbccp.repository.CustomerRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.mcp.annotation.context.McpSyncRequestContext;
-import org.springframework.test.util.ReflectionTestUtils;
-
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class CardServiceTest {
@@ -64,79 +64,55 @@ class CardServiceTest {
         return cardProgram;
     }
 
-    // ---- searchCustomers ----
+    private static CustomerCardSummary buildSummary(
+            CardProgram cardProgram, boolean fraudFlag, BigDecimal creditOutstanding) {
+        return new CustomerCardSummary(
+                cardProgram,
+                "Platinum Rewards",
+                CardStatus.ACTIVE,
+                fraudFlag,
+                LocalDate.of(2028, 6, 30),
+                creditOutstanding);
+    }
+
+    // ---- searchCustomer ----
 
     @Test
-    void searchCustomers_byLastNameAndEmail_returnsMatches(McpSyncRequestContext context) {
+    void searchCustomer_found_returnsCustomer() {
         UUID customerId = UUID.randomUUID();
         Customer customer = buildCustomer(customerId, "John", "Doe", "john.doe@example.com", 4155551234L);
-        when(customerRepository.findByLastNameIgnoreCaseAndEmailIgnoreCase("Doe", "john.doe@example.com"))
-                .thenReturn((customer));
+        when(customerRepository.findByEmailIgnoreCase("john.doe@example.com")).thenReturn(customer);
 
-        CustomerResponse result = cardService.searchCustomer( context,"john.doe@example.com");
+        CustomerResponse result = cardService.searchCustomer("john.doe@example.com");
 
         assertThat(result.customerId()).isEqualTo(customerId);
         assertThat(result.email()).isEqualTo("john.doe@example.com");
-        verify(customerRepository, never()).findByLastNameIgnoreCaseAndMobile(any(), any());
     }
 
-//    @Test
-//    void searchCustomers_byLastNameAndMobile_returnsMatches() {
-//        UUID customerId = UUID.randomUUID();
-//        Customer customer = buildCustomer(customerId, "Jane", "Smith", "jane.smith@example.com", 4155555678L);
-//        when(customerRepository.findByLastNameIgnoreCaseAndMobile("Smith", 4155555678L))
-//                .thenReturn(customer);
-//
-//        CustomerResponse result = cardService.searchCustomers("Smith", null, 4155555678L);
-//
-//        assertThat(result.lastName()).isEqualTo("Smith");
-//    }
+    @Test
+    void searchCustomer_notFound_throwsResourceNotFoundException() {
+        when(customerRepository.findByEmailIgnoreCase("missing@example.com")).thenReturn(null);
 
-//    @Test
-//    void searchCustomers_byEmailOnly_returnsMatches() {
-//        UUID customerId = UUID.randomUUID();
-//        Customer customer = buildCustomer(customerId, "Alice", "Brown", "alice.brown@example.com", 4155559012L);
-//        when(customerRepository.findByEmailIgnoreCase("alice.brown@example.com")).thenReturn(customer);
-//
-//        CustomerResponse result = cardService.searchCustomers(null, "alice.brown@example.com", null);
-//
-//        assertThat(result.customerId()).isEqualTo(customerId);
-//    }
-
-//    @Test
-//    void searchCustomers_byMobileOnly_returnsMatches() {
-//        UUID customerId = UUID.randomUUID();
-//        Customer customer = buildCustomer(customerId, "Alice", "Brown", "alice.brown@example.com", 4155559012L);
-//        when(customerRepository.findByMobile(4155559012L)).thenReturn(customer);
-//
-//        CustomerResponse result = cardService.searchCustomers(null, null, 4155559012L);
-//
-//        assertThat(result.mobile()).isEqualTo(4155559012L);
-//    }
-
-//    @Test
-//    void searchCustomers_lastNameWithoutEmailOrMobile_throwsIllegalArgumentException() {
-//        assertThatThrownBy(() -> cardService.searchCustomers("Doe", null, null))
-//                .isInstanceOf(IllegalArgumentException.class)
-//                .hasMessageContaining("Last name must be accompanied");
-//    }
-
-//    @Test
-//    void searchCustomers_noCriteria_throwsIllegalArgumentException() {
-//        assertThatThrownBy(() -> cardService.searchCustomers(null, null, null))
-//                .isInstanceOf(IllegalArgumentException.class)
-//                .hasMessageContaining("At least an e-mail or a mobile number");
-//    }
-//
-//    // ---- getCardProgramsByName ----
+        assertThatThrownBy(() -> cardService.searchCustomer("missing@example.com"))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
 
     @Test
-    void getCardProgramsByName_returnsMatches(McpSyncRequestContext context) {
+    void searchCustomer_blankEmail_throwsIllegalArgumentException() {
+        assertThatThrownBy(() -> cardService.searchCustomer(" "))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(customerRepository, never()).findByEmailIgnoreCase(any());
+    }
+
+    // ---- getCardProgramsByName ----
+
+    @Test
+    void getCardProgramsByName_returnsMatches() {
         UUID programId = UUID.randomUUID();
         CardProgram cardProgram = buildCardProgram(programId, "Platinum Rewards");
         when(cardProgramRepository.findByNameIgnoreCase("Platinum Rewards")).thenReturn(List.of(cardProgram));
 
-        List<CardProgramResponse> result = cardService.getCardProgramsByName(context, "Platinum Rewards");
+        List<CardProgramResponse> result = cardService.getCardProgramsByName("Platinum Rewards");
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().programId()).isEqualTo(programId);
@@ -144,28 +120,27 @@ class CardServiceTest {
     }
 
     @Test
-    void getCardProgramsByName_blankName_throwsIllegalArgumentException(McpSyncRequestContext context) {
-        assertThatThrownBy(() -> cardService.getCardProgramsByName(context," "))
+    void getCardProgramsByName_blankName_throwsIllegalArgumentException() {
+        assertThatThrownBy(() -> cardService.getCardProgramsByName(" "))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(cardProgramRepository, never()).findByNameIgnoreCase(any());
     }
 
-    // ---- getCardSummaryByCustomerId ----
+    // ---- getCardSummaryByCustomerEmail ----
 
     @Test
-    void getCardSummaryByCustomerId_found_returnsSummary(McpSyncRequestContext context) {
+    void getCardSummaryByCustomerEmail_found_returnsSummary() {
         UUID customerId = UUID.randomUUID();
         UUID programId = UUID.randomUUID();
         Customer customer = buildCustomer(customerId, "John", "Doe", "john.doe@example.com", 4155551234L);
         CardProgram cardProgram = buildCardProgram(programId, "Platinum Rewards");
-        CustomerCardSummary summary = new CustomerCardSummary(
-                cardProgram, "Platinum Rewards", CardStatus.ACTIVE, false, LocalDate.of(2028, 6, 30),
-                new BigDecimal("1250.75"));
+        CustomerCardSummary summary = buildSummary(cardProgram, false, new BigDecimal("1250.75"));
         customer.assignCardSummary(summary);
 
-        when(customerCardSummaryRepository.findByCustomer_CustomerId(customerId)).thenReturn(Optional.of(summary));
+        when(customerCardSummaryRepository.findByCustomer_Email("john.doe@example.com"))
+                .thenReturn(Optional.of(summary));
 
-        CustomerCardSummaryResponse result = cardService.getCardSummaryByCustomerEmail(context, customer.getEmail());
+        CustomerCardSummaryResponse result = cardService.getCardSummaryByCustomerEmail("john.doe@example.com");
 
         assertThat(result.customerId()).isEqualTo(customerId);
         assertThat(result.programId()).isEqualTo(programId);
@@ -173,12 +148,89 @@ class CardServiceTest {
         assertThat(result.creditOutstanding()).isEqualByComparingTo("1250.75");
     }
 
+    @Test
+    void getCardSummaryByCustomerEmail_notFound_throwsResourceNotFoundException() {
+        when(customerCardSummaryRepository.findByCustomer_Email("missing@example.com"))
+                .thenReturn(Optional.empty());
 
+        assertThatThrownBy(() -> cardService.getCardSummaryByCustomerEmail("missing@example.com"))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
 
     @Test
-    void getCardSummaryByCustomerId_nullId_throwsIllegalArgumentException(McpSyncRequestContext context) {
-        assertThatThrownBy(() -> cardService.getCardSummaryByCustomerEmail(context,null))
+    void getCardSummaryByCustomerEmail_blankEmail_throwsIllegalArgumentException() {
+        assertThatThrownBy(() -> cardService.getCardSummaryByCustomerEmail(null))
                 .isInstanceOf(IllegalArgumentException.class);
+        verify(customerCardSummaryRepository, never()).findByCustomer_Email(any());
+    }
+
+    // ---- closeCard ----
+
+    @Test
+    void closeCard_eligible_closesCardAndReturnsSuccessResponse() {
+        UUID customerId = UUID.randomUUID();
+        Customer customer = buildCustomer(customerId, "John", "Doe", "john.doe@example.com", 4155551234L);
+        CardProgram cardProgram = buildCardProgram(UUID.randomUUID(), "Platinum Rewards");
+        CustomerCardSummary summary = buildSummary(cardProgram, false, BigDecimal.ZERO);
+
+        when(customerRepository.findByEmailIgnoreCase("john.doe@example.com")).thenReturn(customer);
+        when(customerCardSummaryRepository.findByCustomer_CustomerId(customerId)).thenReturn(Optional.of(summary));
+
+        CloseCardResponse result = cardService.closeCard("john.doe@example.com");
+
+        assertThat(result.customerId()).isEqualTo(customerId);
+        assertThat(result.isError()).isFalse();
+        assertThat(summary.getCardStatus()).isEqualTo(CardStatus.CLOSED);
+        verify(customerCardSummaryRepository).save(summary);
+    }
+
+    @Test
+    void closeCard_fraudFlagged_doesNotCloseAndReturnsErrorResponse() {
+        UUID customerId = UUID.randomUUID();
+        Customer customer = buildCustomer(customerId, "John", "Doe", "john.doe@example.com", 4155551234L);
+        CardProgram cardProgram = buildCardProgram(UUID.randomUUID(), "Platinum Rewards");
+        CustomerCardSummary summary = buildSummary(cardProgram, true, BigDecimal.ZERO);
+
+        when(customerRepository.findByEmailIgnoreCase("john.doe@example.com")).thenReturn(customer);
+        when(customerCardSummaryRepository.findByCustomer_CustomerId(customerId)).thenReturn(Optional.of(summary));
+
+        CloseCardResponse result = cardService.closeCard("john.doe@example.com");
+
+        assertThat(result.isError()).isTrue();
+        assertThat(summary.getCardStatus()).isEqualTo(CardStatus.ACTIVE);
+        verify(customerCardSummaryRepository, never()).save(any());
+    }
+
+    @Test
+    void closeCard_outstandingBalance_doesNotCloseAndReturnsErrorResponse() {
+        UUID customerId = UUID.randomUUID();
+        Customer customer = buildCustomer(customerId, "John", "Doe", "john.doe@example.com", 4155551234L);
+        CardProgram cardProgram = buildCardProgram(UUID.randomUUID(), "Platinum Rewards");
+        CustomerCardSummary summary = buildSummary(cardProgram, false, new BigDecimal("100.00"));
+
+        when(customerRepository.findByEmailIgnoreCase("john.doe@example.com")).thenReturn(customer);
+        when(customerCardSummaryRepository.findByCustomer_CustomerId(customerId)).thenReturn(Optional.of(summary));
+
+        CloseCardResponse result = cardService.closeCard("john.doe@example.com");
+
+        assertThat(result.isError()).isTrue();
+        assertThat(summary.getCardStatus()).isEqualTo(CardStatus.ACTIVE);
+        verify(customerCardSummaryRepository, never()).save(any());
+    }
+
+    @Test
+    void closeCard_customerNotFound_throwsResourceNotFoundException() {
+        when(customerRepository.findByEmailIgnoreCase("missing@example.com")).thenReturn(null);
+
+        assertThatThrownBy(() -> cardService.closeCard("missing@example.com"))
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(customerCardSummaryRepository, never()).findByCustomer_CustomerId(any());
+    }
+
+    @Test
+    void closeCard_blankEmail_throwsIllegalArgumentException() {
+        assertThatThrownBy(() -> cardService.closeCard(" "))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(customerRepository, never()).findByEmailIgnoreCase(any());
     }
 }
