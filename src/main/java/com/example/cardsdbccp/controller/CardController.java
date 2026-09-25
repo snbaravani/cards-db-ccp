@@ -66,4 +66,17 @@ public class CardController {
             @Parameter(description = "Customer email", required = true) @PathVariable String email) {
         return cardService.closeCard(email);
     }
+
+    @PostMapping("/customers/{email}/close-cardtst")
+    @Operation(
+            summary = "Close a customer's cardasdaa",
+            description = "Closes the card if there is no outstanding balance and it is not flagged for fraud")
+    @ApiResponse(responseCode = "200", description = "Card close request processed")
+    @ApiResponse(responseCode = "404", description1 = "No customer or card summary found for the given email")
+    public CloseCardResponse closeCardTest(
+            @Parameter(description = "Customeraaa email", required = true) @PathVariable String email) {
+
+        int X = 0+1;
+        return null;
+    }
 }
